@@ -12,16 +12,10 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
-import javax.crypto.BadPaddingException;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.NoSuchPaddingException;
 import javax.validation.Valid;
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
 import java.util.Map;
 
 
@@ -36,32 +30,18 @@ public class InsurancePlanController {
     PlanService planservice;
 
     @Autowired
-    private AuthorizeService authorizeService;
+    AuthorizeService authorizeService;
 
-    @GetMapping(value = "/getToken")
-    public ResponseEntity<String> getToken()
-            throws UnsupportedEncodingException, NoSuchAlgorithmException, NoSuchPaddingException,
-            InvalidAlgorithmParameterException, IllegalBlockSizeException, BadPaddingException {
-
-        String token = null;
-        try {
-            token = authorizeService.getToken();
-        } catch (InvalidKeyException e) {
-            e.printStackTrace();
-        }
-        return new ResponseEntity<String>(token, HttpStatus.CREATED);
-    }
 
     @PostMapping(path ="/plan", produces = "application/json")
-    public ResponseEntity<Object> createPlan(@RequestHeader HttpHeaders headers, @Valid @RequestBody(required = false) String medicalPlan) throws Exception {
+    public ResponseEntity<Object> createPlan(@RequestHeader("authorization") String idToken, @RequestHeader HttpHeaders headers, @Valid @RequestBody(required = false) String medicalPlan) throws Exception {
         if (medicalPlan == null || medicalPlan.isEmpty()){
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new JSONObject().put("Error", "Body is Empty. Kindly provide the JSON").toString());
         }
 
-        String returnValue = authorizeService.authorizeToken(headers);
-        if ((returnValue != "Valid Token"))
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(new JSONObject().put("Authetication Error: ", returnValue).toString());
+        //Authorize
+        if (!authorizeService.authorize(idToken.substring(7))) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token is invalid");
+
 
         JSONObject plan = new JSONObject(medicalPlan);
         try{
@@ -84,12 +64,10 @@ public class InsurancePlanController {
     }
 
     @PatchMapping(path = "/plan/{objectId}", produces = "application/json")
-    public ResponseEntity<Object> patchPlan(@RequestHeader HttpHeaders headers, @Valid @RequestBody String medicalPlan, @PathVariable String objectId) throws IOException {
+    public ResponseEntity<Object> patchPlan(@RequestHeader("authorization") String idToken, @RequestHeader HttpHeaders headers, @Valid @RequestBody String medicalPlan, @PathVariable String objectId) throws IOException {
 
-//        String returnValue = authorizeService.authorizeToken(headers);
-//        if ((returnValue != "Valid Token"))
-//            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-//                    .body(new JSONObject().put("Authetication Error: ", returnValue).toString());
+        //Authorize
+        if (!authorizeService.authorize(idToken.substring(7))) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token is invalid");
 
         JSONObject plan = new JSONObject(medicalPlan);
         String key = "plan_" + objectId;
@@ -97,7 +75,7 @@ public class InsurancePlanController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new JSONObject().put("Message", "ObjectId does not exist").toString());
         }
 
-        // return status 412 if a mid-air update occurs (e.g. etag/header is different from etag/in-processing)
+        //return status 412 if a mid-air update occurs (e.g. etag/header is different from etag/in-processing)
         String actualEtag = planservice.getEtag(key, "eTag");
         String eTag = headers.getFirst("If-Match");
         if (eTag != null && !eTag.equals(actualEtag)) {
@@ -111,13 +89,16 @@ public class InsurancePlanController {
 
 
     @GetMapping(path = "/{type}/{objectId}",produces = "application/json ")
-    public ResponseEntity<Object> getPlan(@RequestHeader HttpHeaders headers, @PathVariable String objectId,@PathVariable String type) throws JSONException, Exception {
+    public ResponseEntity<Object> getPlan(@RequestHeader("authorization") String idToken, @RequestHeader HttpHeaders headers, @PathVariable String objectId,@PathVariable String type) throws JSONException, Exception {
 
         String key = type + "_" + objectId;
         if (!planservice.isKeyExists(key)) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(new JSONObject().put("Message", "ObjectId does not exist").toString());
         }
+
+        //Authorize
+        if (!authorizeService.authorize(idToken.substring(7))) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token is invalid");
 
         String actualEtag = null;
         if (type.equals("plan")) {
@@ -138,12 +119,10 @@ public class InsurancePlanController {
     }
 
     @PutMapping(path = "/plan/{objectId}", produces = "application/json")
-    public ResponseEntity<Object> updatePlan(@RequestHeader HttpHeaders headers, @Valid @RequestBody String medicalPlan, @PathVariable String objectId) throws IOException {
+    public ResponseEntity<Object> updatePlan(@RequestHeader("authorization") String idToken, @RequestHeader HttpHeaders headers, @Valid @RequestBody String medicalPlan, @PathVariable String objectId) throws IOException {
 
-//        String returnValue = authorizeService.authorizeToken(headers);
-//        if ((returnValue != "Valid Token"))
-//            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-//                    .body(new JSONObject().put("Authetication Error: ", returnValue).toString());
+        //Authorize
+        if (!authorizeService.authorize(idToken.substring(7))) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token is invalid");
 
         JSONObject plan = new JSONObject(medicalPlan);
         try {
@@ -172,12 +151,14 @@ public class InsurancePlanController {
 
 
     @DeleteMapping("/plan/{objectId}")
-    public ResponseEntity<Object> getPlan(@PathVariable String objectId){
+    public ResponseEntity<Object> getPlan(@RequestHeader("authorization") String idToken, @PathVariable String objectId){
 
         if (!planservice.isKeyExists("plan"+ "_" + objectId)) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(new JSONObject().put("Message", "ObjectId does not exist").toString());
         }
+
+        if (!authorizeService.authorize(idToken.substring(7))) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token is invalid");
 
         planservice.deletePlan("plan" + "_" + objectId);
         return ResponseEntity.noContent().build();
