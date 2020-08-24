@@ -1,4 +1,4 @@
-package com.info7255.dao;
+package info7255.dao;
 
 import org.springframework.stereotype.Repository;
 import redis.clients.jedis.Jedis;

@@ -1,4 +1,4 @@
-package com.info7255;
+package info7255;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -7,7 +7,7 @@ import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactor
 import org.springframework.data.redis.core.RedisTemplate;
 
 @SpringBootApplication
-public class BigDataIndexingApplication {
+public class BasicServiceApplication {
 
     @Bean
     LettuceConnectionFactory lettuceConnectionFactory() {
@@ -22,8 +22,7 @@ public class BigDataIndexingApplication {
     }
 
     public static void main(String[] args) {
-
-        SpringApplication.run(BigDataIndexingApplication.class, args);
+        SpringApplication.run(BasicServiceApplication.class, args);
     }
 
 //    @Bean

@@ -1,11 +1,13 @@
-package com.info7255.service;
+package info7255.service;
 
-import com.info7255.dao.InsurancePlanDao;
+
+import info7255.dao.InsurancePlanDao;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import redis.clients.jedis.exceptions.JedisException;
 
 import java.util.*;
 
@@ -16,6 +18,11 @@ public class PlanService {
     @Autowired
     InsurancePlanDao planDao;
 
+    @Autowired
+    MessageQueueService messageQueueService;
+
+    private Map<String,String> relationMap = new HashMap<>();
+
     /**
      * add a new plan with Etag
      * */
@@ -24,9 +31,12 @@ public class PlanService {
         //save json object
         Map<String, Object> savedPlanMap = savePlan(objectID, planObject);
         String savedPlan = new JSONObject(savedPlanMap).toString();
+
+        indexQueue(planObject, objectID);
+
         //create and save eTag
         String newEtag = DigestUtils.md5Hex(savedPlan);
-        System.out.println("eTag: " + newEtag);//TODO
+        System.out.println("eTag: " + newEtag);
         planDao.hSet(objectID, "eTag", newEtag);
 
         return newEtag;
@@ -39,6 +49,7 @@ public class PlanService {
         //step2: fetch, organize and operate all Hash as the request
         Map<String, Object> outputMap = new HashMap<>();
         processNestedJSONObject(key, outputMap, false);
+
         return outputMap;
     }
 
@@ -56,6 +67,76 @@ public class PlanService {
      * */
     public void deletePlan(String key) {
         processNestedJSONObject(key, null, true);
+    }
+
+
+    private void indexQueue(JSONObject jsonObject, String uuid) {
+
+        try {
+
+            Map<String,String> simpleMap = new HashMap<>();
+
+
+            for(Object key : jsonObject.keySet()) {
+                String attributeKey = String.valueOf(key);
+                Object attributeVal = jsonObject.get(String.valueOf(key));
+                String edge = attributeKey;
+
+                if(attributeVal instanceof JSONObject) {
+                    JSONObject embdObject = (JSONObject) attributeVal;
+
+                    JSONObject joinObj = new JSONObject();
+                    if(edge.equals("planserviceCostShares") && embdObject.getString("objectType").equals("membercostshare")){
+                        joinObj.put("name", "planservice_membercostshare");
+                    } else {
+                        joinObj.put("name", embdObject.getString("objectType"));
+                    }
+
+                    joinObj.put("parent", uuid);
+                    embdObject.put("plan_service", joinObj);
+                    embdObject.put("parent_id", uuid);
+                    System.out.println(embdObject.toString());
+                    messageQueueService.addToMessageQueue(embdObject.toString(), false);
+
+                } else if (attributeVal instanceof JSONArray) {
+
+                    JSONArray jsonArray = (JSONArray) attributeVal;
+                    Iterator<Object> jsonIterator = jsonArray.iterator();
+
+                    while(jsonIterator.hasNext()) {
+                        JSONObject embdObject = (JSONObject) jsonIterator.next();
+                        embdObject.put("parent_id", uuid);
+                        System.out.println(embdObject.toString());
+
+                        String embd_uuid = embdObject.getString("objectId");
+                        relationMap.put(embd_uuid, uuid);
+
+                        indexQueue(embdObject, embd_uuid);
+                    }
+
+                } else {
+                    simpleMap.put(attributeKey, String.valueOf(attributeVal));
+                }
+            }
+
+            JSONObject joinObj = new JSONObject();
+            joinObj.put("name", simpleMap.get("objectType"));
+
+            if(!simpleMap.containsKey("planType")){
+                joinObj.put("parent", relationMap.get(uuid));
+            }
+
+            JSONObject obj1 = new JSONObject(simpleMap);
+            obj1.put("plan_service", joinObj);
+            obj1.put("parent_id", relationMap.get(uuid));
+            System.out.println(obj1.toString());
+            messageQueueService.addToMessageQueue(obj1.toString(), false);
+
+
+        }
+        catch(JedisException e) {
+            e.printStackTrace();
+        }
     }
 
     /**
@@ -83,6 +164,8 @@ public class PlanService {
                 HashMap<String, Map<String, Object>> val = (HashMap<String, Map<String, Object>>) value;
                 //save set (redisKey_key, objectID),e.g. (redisKey_planCostShares, membercostshare_1234xxxxx-501);
                 planDao.addSetValue(redisKey + "_" + key, val.entrySet().iterator().next().getKey());
+
+
             //2. save list: e.g. linkedPlanServices:[{k-v},{k-v}]
             } else if (value instanceof JSONArray) {
                 value = convertToList((JSONArray) value);
@@ -92,14 +175,18 @@ public class PlanService {
                         planDao.addSetValue(redisKey + "_" + key, listKey);
                     }
                 }
+
             //3. save string: e.g. {objectType: plan}
             } else {
                 planDao.hSet(redisKey, key, value.toString());
                 valueMap.put(key, value);
                 map.put(redisKey, valueMap);
+
             }
         }
+        System.out.println("map: "+ map.toString());
         return map;
+
     }
 
     private List<Object> convertToList(JSONArray array) {

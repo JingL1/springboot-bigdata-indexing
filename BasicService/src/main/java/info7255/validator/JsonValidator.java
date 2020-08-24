@@ -1,4 +1,4 @@
-package com.info7255.validator;
+package info7255.validator;
 
 import org.everit.json.schema.Schema;
 import org.everit.json.schema.loader.SchemaLoader;
@@ -14,6 +14,7 @@ import java.io.InputStream;
 public class JsonValidator {
     public void validateJson(JSONObject object) throws IOException {
         try(InputStream inputStream = getClass().getResourceAsStream("/JsonSchema.json")){
+            System.out.println(inputStream.toString());
             JSONObject rawSchema = new JSONObject(new JSONTokener(inputStream));
             Schema schema = SchemaLoader.load(rawSchema);
             schema.validate(object);

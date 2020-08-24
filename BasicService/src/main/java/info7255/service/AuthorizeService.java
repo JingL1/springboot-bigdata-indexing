@@ -1,4 +1,4 @@
-package com.info7255.service;
+package info7255.service;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
 import com.google.api.client.googleapis.auth.oauth2.GoogleIdTokenVerifier;
 import com.google.api.client.http.apache.ApacheHttpTransport;
@@ -11,9 +11,10 @@ import java.util.Collections;
 public class AuthorizeService {
 
 	//parse client id
+	//TODO: insert your own google secret id here
 	private static final JacksonFactory jacksonFactory = new JacksonFactory();
 	GoogleIdTokenVerifier verifier = new GoogleIdTokenVerifier.Builder(new ApacheHttpTransport(), jacksonFactory)
-			.setAudience(Collections.singletonList("180279915678-vetffrvuaocuj6ie0m49j54b0apt1sk9.apps.googleusercontent.com"))
+			.setAudience(Collections.singletonList("your secret id"))
 			.build();
 
 	//verify google token

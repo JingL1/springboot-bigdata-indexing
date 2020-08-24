@@ -1,9 +1,10 @@
-package com.info7255.controller;
+package info7255.controller;
 
 
-import com.info7255.service.AuthorizeService;
-import com.info7255.service.PlanService;
-import com.info7255.validator.JsonValidator;
+import info7255.service.AuthorizeService;
+import info7255.service.MessageQueueService;
+import info7255.service.PlanService;
+import info7255.validator.JsonValidator;
 import org.everit.json.schema.ValidationException;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -32,6 +33,19 @@ public class InsurancePlanController {
     @Autowired
     AuthorizeService authorizeService;
 
+    @Autowired
+    private MessageQueueService messageQueueService;
+
+
+    @PostMapping(path ="/token", produces = "application/json")
+    public ResponseEntity<Object> createToken(@RequestHeader("authorization") String idToken, @Valid @RequestBody(required = false) String medicalPlan) throws Exception {
+        if (medicalPlan == null || medicalPlan.isEmpty()){
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new JSONObject().put("Error", "Body is Empty. Kindly provide the JSON").toString());
+        }
+
+        return ResponseEntity.ok().body(idToken);
+    }
+
 
     @PostMapping(path ="/plan", produces = "application/json")
     public ResponseEntity<Object> createPlan(@RequestHeader("authorization") String idToken, @RequestHeader HttpHeaders headers, @Valid @RequestBody(required = false) String medicalPlan) throws Exception {
@@ -58,7 +72,7 @@ public class InsurancePlanController {
         }
 
         //save the plan if not exist
-        String newEtag = planservice.addPlanETag(plan, key);
+        String newEtag = planservice.addPlanETag(plan, plan.get("objectId").toString());
         String res = "{ObjectId: " + plan.get("objectId") + ", ObjectType: " + plan.get("objectType") + "}";
         return ResponseEntity.ok().eTag(newEtag).body(new JSONObject(res).toString());//TODO: test
     }
@@ -76,14 +90,14 @@ public class InsurancePlanController {
         }
 
         //return status 412 if a mid-air update occurs (e.g. etag/header is different from etag/in-processing)
-        String actualEtag = planservice.getEtag(key, "eTag");
+        String actualEtag = planservice.getEtag(objectId, "eTag");
         String eTag = headers.getFirst("If-Match");
         if (eTag != null && !eTag.equals(actualEtag)) {
             return ResponseEntity.status(HttpStatus.PRECONDITION_FAILED).eTag(actualEtag).build();
         }
 
         //update if the plan already created
-        String newEtag = planservice.addPlanETag(plan, key);
+        String newEtag = planservice.addPlanETag(plan, plan.get("objectId").toString());
         return ResponseEntity.ok().eTag(newEtag).body(new JSONObject().put("Message ", "Updated successfully").toString());
     }
 
@@ -102,7 +116,7 @@ public class InsurancePlanController {
 
         String actualEtag = null;
         if (type.equals("plan")) {
-            actualEtag = planservice.getEtag(type + "_" + objectId, "eTag");
+            actualEtag = planservice.getEtag(objectId, "eTag");
             String eTag = headers.getFirst("if-none-match");
             //if not updated -> 304
             if (actualEtag.equals(eTag)){
@@ -138,14 +152,14 @@ public class InsurancePlanController {
         }
 
         // return status 412 if a mid-air update occurs (e.g. etag/header is different from etag/in-processing)
-        String actualEtag = planservice.getEtag(key, "eTag");
+        String actualEtag = planservice.getEtag(objectId, "eTag");
         String eTag = headers.getFirst("If-Match");
         if (eTag != null && !eTag.equals(actualEtag)) {
             return ResponseEntity.status(HttpStatus.PRECONDITION_FAILED).eTag(actualEtag).build();
         }
 
         planservice.deletePlan("plan" + "_" + objectId);
-        String newEtag = planservice.addPlanETag(plan, key);
+        String newEtag = planservice.addPlanETag(plan, plan.get("objectId").toString());
         return ResponseEntity.ok().eTag(newEtag).body(new JSONObject().put("Message: ", "Updated successfully").toString());
     }
 
@@ -161,6 +175,8 @@ public class InsurancePlanController {
         if (!authorizeService.authorize(idToken.substring(7))) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Token is invalid");
 
         planservice.deletePlan("plan" + "_" + objectId);
+
+        messageQueueService.addToMessageQueue(objectId, true);
         return ResponseEntity.noContent().build();
 
     }
